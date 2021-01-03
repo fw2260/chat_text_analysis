@@ -1,0 +1,312 @@
+---
+title: "Plastics Chat Text Analysis -- Merry Christmas!"
+author: "Lily Wang"
+date: "12/20/2020"
+output: html_document
+---
+
+<style type="text/css">
+  body{
+  font-size: 12pt;
+}
+</style>
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggridges)
+library(tidytext)
+library(lubridate)
+library(stringr)
+library(wordcloud)
+library(reshape2)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+**Data source:** Downloaded from Facebook on 12/16/2020. Messages date back to 5/1/2017.
+
+**Method:** Split each message into individual words, making sure URLs get counted as one word. Columns include `sender`, `date`, `time`, `weekday`, and `word`.
+
+```{r clean data, echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df <- read_csv("data/plastics.csv") %>% 
+  separate(date, into = c("monthday", "year", "time"), sep = ",") %>% 
+  unite("date", monthday:year, sep = ",") %>% 
+  mutate(date = mdy(date),
+         weekday = wday(date, label = TRUE),
+         weekday = fct_relevel(weekday, "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")) %>% 
+  mutate(message = gsub("You sent an attachment.|You sent a link.", "", message),
+         message = gsub("\u2019", "'", message),  # for some reason apostrophes were not actually apostrophes
+         message = gsub("\\s?(f|ht)(tp)(s?)(://)([^\\.]*)[\\.|/](\\S*)", " inserturlhere", message),
+         sender = word(sender, 1)) %>% 
+  unnest_tokens(word, message) 
+```
+
+<br>
+
+## Who talks the most?
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  count(sender) %>% 
+  mutate(sender = fct_reorder(sender, n)) %>% 
+  ggplot(aes(x = sender, y = n, fill = sender)) +
+  geom_col(alpha = 0.6) +
+  scale_y_continuous(labels = scales::comma) +
+  theme(legend.position = "none") +
+  labs(x = "Sender", y = "Total Words")
+  
+```
+
+Expected, tbh.
+
+<br>
+
+## When are we talking?
+
+```{r include = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  group_by(month = as.Date(cut(date, "month"))) %>% 
+  count() %>% 
+  ggplot(aes(x = month, y = n)) + 
+  geom_col(alpha = 0.6, fill = "purple4") +
+  scale_x_date(date_breaks = "1 year") +
+  labs(y = "Total Words", x = "Date by Month")
+```
+
+<img src="graph_w_overlay.png" style="width:75%">
+<br>
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  count(sender, weekday) %>% 
+  ggplot(aes(y = n, x = weekday, fill = weekday)) +
+  geom_col(alpha = 0.6) + 
+  scale_y_continuous(labels = scales::comma) +
+  theme(legend.position = "none") +
+  facet_wrap(~sender) +
+  labs(y = "Total Words", x = "Day of the Week")
+```
+
+Seems like there's a lull in the middle of the week for everyone.
+
+<br>
+
+## Most common words by proportion since I gotta account for the disparities in talkativeness (after taking out the most common words in English)
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+data(stop_words)
+
+slang <- 
+  plastics_df %>% 
+  anti_join(stop_words, by = "word") %>% 
+  group_by(sender) %>% 
+  count(word, sort = TRUE) %>% 
+  drop_na() %>% 
+  mutate(total = sum(n),
+         percoftotal = n/total) %>% 
+  group_by(word) %>% 
+  summarize(percent = sum(percoftotal)) %>% 
+  arrange(desc(percent)) %>% 
+  slice(1:15)
+
+slang %>% 
+  mutate(word = fct_reorder(word, percent)) %>% 
+  ggplot(aes(x = percent*100, y = word)) +
+  geom_col(fill = "purple4", alpha = 0.6) +
+  labs(x = "Percent of Total Words", y = "Sender") 
+```
+
+<br>
+
+## Hmmm...guess we say each other's names most often and the lexicons I used don't contain slang. What happens if we exclude these?{.tabset}
+
+### Everyone
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  anti_join(stop_words, by = "word") %>% 
+  filter(word != "inserturlhere") %>% 
+  filter(!(word %in% slang$word)) %>% 
+  group_by(sender) %>% 
+  count(word, sort = TRUE) %>% 
+  drop_na() %>% 
+  mutate(total = sum(n),
+         percoftotal = n/total) %>% 
+  group_by(word) %>% 
+  summarize(percent = sum(percoftotal)) %>% 
+  arrange(desc(percent)) %>% 
+  slice(1:10) %>% 
+  mutate(word = fct_reorder(word, percent)) %>% 
+  ggplot(aes(x = percent*100, y = word)) +
+  geom_col(fill = "purple4", alpha = 0.6) +
+  labs(x = "Percent of Total Words", y = "Sender") 
+```
+
+### Farren
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  filter(sender == "Farren") %>% 
+  select(word) %>% 
+  anti_join(stop_words) %>% 
+  filter(word != "inserturlhere") %>%
+  filter(!(word %in% slang$word)) %>% 
+  count(word, sort = TRUE) %>% 
+  drop_na() %>% 
+  top_n(10) %>% 
+  mutate(word = fct_reorder(word, n)) %>% 
+  ggplot(aes(y = word, x = n)) + 
+  geom_bar(stat = "identity", fill = "lightseagreen", alpha = .6) + 
+  labs(x = "Count", y = "Sender") +
+  theme(legend.position = "none")
+```
+
+### Vicki
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  filter(sender == "Vicki") %>% 
+  select(word) %>% 
+  anti_join(stop_words) %>% 
+  filter(word != "inserturlhere") %>%
+  filter(!(word %in% slang$word)) %>% 
+  count(word, sort = TRUE) %>% 
+  drop_na() %>% 
+  top_n(10) %>% 
+  mutate(word = fct_reorder(word, n)) %>% 
+  ggplot(aes(y = word, x = n)) + 
+  geom_bar(stat = "identity", fill = "purple4", alpha = .6) + 
+  labs(x = "Count", y = "Sender") +
+  theme(legend.position = "none")
+```
+
+### Lily
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  filter(sender == "Lily") %>% 
+  select(word) %>% 
+  anti_join(stop_words) %>% 
+  filter(word != "inserturlhere") %>%
+  filter(!(word %in% slang$word)) %>% 
+  count(word, sort = TRUE) %>% 
+  drop_na() %>% 
+  top_n(10) %>% 
+  mutate(word = fct_reorder(word, n)) %>% 
+  ggplot(aes(y = word, x = n)) + 
+  geom_bar(stat = "identity", fill = "lightseagreen", alpha = .6) + 
+  labs(x = "Count", y = "Sender") +
+  theme(legend.position = "none")
+```
+
+### Lauren
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  filter(sender == "Lauren") %>% 
+  select(word) %>% 
+  anti_join(stop_words) %>% 
+  filter(word != "inserturlhere") %>%
+  filter(!(word %in% slang$word)) %>% 
+  count(word, sort = TRUE) %>% 
+  drop_na() %>% 
+  top_n(10) %>% 
+  mutate(word = fct_reorder(word, n)) %>% 
+  ggplot(aes(y = word, x = n)) + 
+  geom_bar(stat = "identity", fill = "purple4", alpha = .6) + 
+  labs(x = "Count", y = "Sender") +
+  theme(legend.position = "none")
+```
+
+##
+
+#### Some immediate observations:
+* Farren mentions her mom a lot, the rest of us do not
+* Vicki talks about Ivan all the time and uh
+* Farren and Vicki use XD 
+* I guess I'm the only one who says "lmao", "wtf", and spell "because" like "cuz"
+* Lauren's preferred method of communication is through sounds
+
+<br>
+
+## Some very sketchy word-by-word sentiment analysis
+
+**Disclaimer:** This analysis only looks at what words we use, and not on the relationship of those words. Not to mention it doesn't include words that are misspelled or have been elongated (like "yeahhh").
+
+There are different lexicons where people have categorized certain words as having "positive" or "negative" sentiments. I am using a lexicon called the AFINN Sentiment Lexicon which gives words (including slangs like "lol" and "wtf") a ranking of -5 to 5. For reference, a swear is -5/-4 and "lmao" is a 4. As I can't account for the context in which these words are used, this analysis obviously won't be entirely accurate. As you might imagine, the lexicon may define "adore" as a positive word, but the phrase could've actually been "I don't adore", which is the opposite sentiment. The best I can do is come up with an average sentiment value for each individual message.
+
+I took out the words *discord, like, well, clash, slack, gold, rip, stun* and *support* since we do not use them in the same context as the lexicon thinks we do.
+
+<br>
+
+### Word cloud of sentiments (size of text corresponds to frequency)
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+afinn_sentiments <- get_sentiments("afinn")
+
+plastics_df %>%
+  filter(!(word %in% c("discord", "like", "work", "well", "clash", "slack", "gold", "rip", "stun", "support"))) %>% 
+  select(word) %>% 
+  inner_join(afinn_sentiments) %>%
+  count(word, value, sort = TRUE) %>%
+  mutate(sentiment = ifelse(value > 0, "positive", "negative")) %>% 
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("purple4", "lightseagreen"),
+                   max.words = 80)
+```
+
+<br>
+
+### Distribution of average message sentiments
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  filter(!(word %in% c("discord", "like", "work", "well", "clash", "slack", "gold", "rip", "stun", "support"))) %>% 
+  inner_join(afinn_sentiments, by = "word") %>% 
+  group_by(sender, time, date) %>% 
+  summarize(message_sentiment = mean(value)) %>% 
+  ggplot(aes(y = sender, x = message_sentiment, fill = sender)) +
+  geom_density_ridges(scale = .85, alpha = 0.6) +
+  labs(x = "Average Message Sentiment", y = "Sender") +
+  scale_x_continuous(limits = c(-5, 5)) +
+  theme(legend.position = "none")
+```
+
+<br>
+
+## Other interesting tidbits
+
+### The mysterious disappearance and re-appearance of "league"
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  filter(word %in% c("league", "leaguee", "leagueee")) %>% 
+  group_by(month = as.Date(cut(date, "month"))) %>% 
+  count() %>% 
+  ggplot(aes(x = month, y = n)) +
+  geom_col(fill = "purple4", alpha = 0.6) +
+  scale_x_date(date_breaks = "1 year") +
+  labs(y = "Total", x = "Date by Month")
+```
+
+<br>
+
+### Most URLs sent
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+plastics_df %>% 
+  filter(word == "inserturlhere") %>% 
+  count(sender, word) %>% 
+  select(sender, n) %>% 
+  rename("Sender" = sender,
+         "Count" = n) %>% 
+  knitr::kable(format = "html", table.attr = "style='width:30%;'")
+```

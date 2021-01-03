@@ -1,0 +1,47 @@
+---
+title: "Scrape Plastics Chat"
+author: "Lily Wang"
+date: "12/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(rvest)
+```
+
+Read in all Plastics html messages downloaded from Facebook, clean, and output as csv:
+
+```{r}
+read_html_messages <- function(x) { 
+
+url <- sprintf("data/theplastics/message_%s.html", x)
+raw <- read_html(url)
+
+everything <- 
+  raw %>%
+  html_nodes(".noborder") %>% 
+  html_text() %>% 
+  str_split_fixed(., "(?<=Lily Wang|Farren Wang|Lauren Futami|Vicki Ngan)", n=2) 
+
+date <- 
+  raw %>%
+  html_nodes("._2lem") %>% 
+  html_text()
+
+plastics_df <-
+  as_tibble(everything) %>% 
+  rename("sender" = V1,
+         "message" = V2) %>% 
+  mutate(
+    message = str_remove(message, paste("\"\\(?<=", paste(date, collapse = "|"), "\\)\"", sep = ""))) %>% 
+  add_column(date = date) %>% 
+  slice(-1)
+ 
+}
+
+all_messages = map_df(1:16, read_html_messages)
+
+write_csv(all_messages, "data/plastics.csv")
+```
+
