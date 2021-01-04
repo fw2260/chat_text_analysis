@@ -31,10 +31,6 @@ scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 ```
 
-**Data source:** Downloaded from Facebook on 12/16/2020. Messages date back to 5/1/2017.
-
-**Method:** Split each message into individual words, making sure URLs get counted as one word. Columns include `sender`, `date`, `time`, `weekday`, and `word`.
-
 ```{r clean data, echo = FALSE, message=FALSE, warning=FALSE}
 plastics_df <- read_csv("data/plastics.csv") %>% 
   separate(date, into = c("monthday", "year", "time"), sep = ",") %>% 
@@ -48,6 +44,10 @@ plastics_df <- read_csv("data/plastics.csv") %>%
          sender = word(sender, 1)) %>% 
   unnest_tokens(word, message) 
 ```
+
+**Data source:** Downloaded from Facebook on 12/16/2020 as HTML then parsed (refer to scrape.Rmd for that process). Messages date back to 5/1/2017. The final dataset contains `r nrow(read_csv("data/plastics.csv"))` individual messages.
+
+**Method:** Split each message into individual words, making sure URLs get counted as one word. Columns include `sender`, `date`, `time`, `weekday`, and `word`.
 
 <br>
 
